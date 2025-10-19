@@ -389,19 +389,15 @@
         if (!dateValue) return null;
         let date;
         if (typeof dateValue === 'number') {
-            // Converte data serial do Excel (base 1900)
             if (dateValue === 0) return new Date('1900-01-01T00:00:00'); 
             date = new Date((dateValue - 25569) * 86400 * 1000);
         } else if (typeof dateValue === 'string') {
-            // Tenta formato YYYYMMDD
             if (/^\d{8}$/.test(dateValue)) {
                 date = new Date(`${dateValue.substring(0, 4)}-${dateValue.substring(4, 6)}-${dateValue.substring(6, 8)}T00:00:00`);
-            // Tenta formato DD/MM/YYYY
             } else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(dateValue)) {
                 const [day, month, year] = dateValue.split('/');
                 date = new Date(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T00:00:00`);
             } else {
-                // Tenta outros formatos (incluindo ISO YYYY-MM-DD e 01/01/1900)
                 date = new Date(dateValue);
             }
         } else if (dateValue instanceof Date) { 
@@ -411,7 +407,7 @@
         if (!date || isNaN(date.getTime())) return null;
 
         if (date.getFullYear() > 1900) {
-            date.setHours(0, 0, 0, 0); // Padroniza a data para meia-noite
+            date.setHours(0, 0, 0, 0); 
         }
         return date;
     }
@@ -453,11 +449,11 @@
             return {
                 empresa: String(empresa).trim(),
                 filial: String(filial).trim(),
-                ordemSep: ordemSep,
+                ordemSep: String(ordemSep).trim(), // Garante que 'ordemSep' seja string e limpa
                 operador: operador,
                 nomeOperador: nomeOperadorNormalizado, 
                 pedido: pedido,
-                produto: String(produto).trim(), // Limpa o nome do produto também
+                produto: String(produto).trim(), 
                 item: item,
                 armazem: armazem,
                 endereco: endereco,
@@ -471,8 +467,9 @@
         }).filter(separation => separation.nomeOperador !== 'DESCONHECIDO' && separation.inicioSeparacao);
     }
 
+    // ##### FUNÇÃO DE CÁLCULO (LÓGICA DE COMPRADORES ATUALIZADA) #####
     function calculateMetrics(separations) {
-        const totalSeparations = separations.length;
+        const totalSeparations = separations.length; // Total de LINHAS
         
         const completedSeparations = separations.filter(s => 
             s.status === 'FINALIZADO' || s.status === 'ENCERRADA' || s.status === 'IMPRIME VOLUME').length;
@@ -482,6 +479,12 @@
         const completionRate = totalSeparations > 0 ? 
             ((completedSeparations / totalSeparations) * 100).toFixed(1) + '%' : '0%';
         
+        // Função auxiliar para garantir que o 'item' é um número
+        const getItemCount = (itemValue) => {
+            const count = parseInt(itemValue, 10);
+            return !isNaN(count) ? count : 0; // Se não for número, conta como 0
+        };
+
         // Métricas por operador
         const operatorMetrics = Object.values(separations.reduce((acc, separation) => {
             const operatorKey = separation.nomeOperador; 
@@ -491,7 +494,7 @@
                 name: separation.nomeOperador, 
                 totalSeparations: 0,
                 completedSeparations: 0,
-                totalItems: 0 // Este 'totalItems' soma a coluna 'item', o que pode não ser 'quantidade'
+                totalItems: 0 
             };
             
             acc[operatorKey].totalSeparations++;
@@ -500,10 +503,7 @@
                 acc[operatorKey].completedSeparations++;
             }
             
-            // ATENÇÃO: A coluna 'ITEM' está sendo somada. Se 'ITEM' não for 'QUANTIDADE', este número pode estar incorreto.
-            const itemCount = separation.item && !isNaN(parseInt(separation.item, 10)) ? 
-                parseInt(separation.item, 10) : 1;
-            acc[operatorKey].totalItems += itemCount;
+            acc[operatorKey].totalItems += getItemCount(separation.item); 
             
             return acc;
         }, {}));
@@ -515,21 +515,30 @@
             return acc;
         }, {}));
 
-        // Métricas por comprador (cliente)
-        const buyerMetrics = Object.values(separations.reduce((acc, separation) => {
+        // ##### MÉTRICA 'PRINCIPAIS COMPRADORES' (LÓGICA ATUALIZADA) #####
+        const buyerMetricsAccumulator = separations.reduce((acc, separation) => {
             const buyerKey = (separation.cliente || 'NÃO IDENTIFICADO').trim().toUpperCase(); 
-            acc[buyerKey] = acc[buyerKey] || { name: (separation.cliente || 'NÃO IDENTIFICADO'), separations: 0, items: 0 };
-            acc[buyerKey].separations++;
+            acc[buyerKey] = acc[buyerKey] || { 
+                name: (separation.cliente || 'NÃO IDENTIFICADO'), 
+                uniqueOrders: new Set(), // Usa um Set para guardar ordens únicas
+                items: 0 
+            };
             
-            // ATENÇÃO: Mesma observação da métrica de operador.
-            const itemCount = separation.item && !isNaN(parseInt(separation.item, 10)) ? 
-                parseInt(separation.item, 10) : 1;
-            acc[buyerKey].items += itemCount;
+            acc[buyerKey].uniqueOrders.add(separation.ordemSep); // Adiciona a ordem de separação ao Set
+            acc[buyerKey].items += getItemCount(separation.item); // Soma a 'quantidade' (coluna item)
             
             return acc;
-        }, {}));
+        }, {});
 
-        // ##### NOVA MÉTRICA (PRINCIPAIS ITENS) #####
+        // Converte o Set para um número (tamanho do Set)
+        const buyerMetrics = Object.values(buyerMetricsAccumulator).map(buyer => {
+            buyer.orderCount = buyer.uniqueOrders.size; // Cria a contagem de ordens únicas
+            delete buyer.uniqueOrders; // Remove o Set
+            return buyer;
+        });
+        // ##### FIM DA ATUALIZAÇÃO #####
+
+        // ##### MÉTRICA 'PRINCIPAIS ITENS' (VERSÃO SEGURA - CONTA LINHAS) #####
         const productMetrics = Object.values(separations.reduce((acc, separation) => {
             const productKey = separation.produto || 'NÃO IDENTIFICADO';
             
@@ -543,7 +552,7 @@
             
             return acc;
         }, {}));
-        // ##### FIM DA NOVA MÉTRICA #####
+        // ##### FIM DA MÉTRICA #####
 
         // Os status são contados para o card "Status das Separações"
         const statusCounts = separations.reduce((acc, separation) => {
@@ -595,6 +604,7 @@
         });
     }
 
+    // ##### FUNÇÃO DE ATUALIZAÇÃO DO DASHBOARD (COMPRADORES ATUALIZADO) #####
     function updateDashboard(data) {
         // Card "Resumo Geral"
         document.getElementById('totalSeparations').textContent = data.totalSeparations;
@@ -681,10 +691,12 @@
             });
         }
 
-        // Tabela "Principais Compradores"
+        // ##### ATUALIZAÇÃO DA TABELA "PRINCIPAIS COMPRADORES" #####
         const buyersMetricsContainer = document.getElementById('buyersMetrics');
         buyersMetricsContainer.innerHTML = '';
-        const sortedBuyers = [...data.buyerMetrics].sort((a, b) => b.separations - a.separations).slice(0, 10);
+        // Ordena pelo novo 'orderCount' (Nº de Ordens de Separação)
+        const sortedBuyers = [...data.buyerMetrics].sort((a, b) => b.orderCount - a.orderCount).slice(0, 10); 
+        
         if (sortedBuyers.length === 0) {
             buyersMetricsContainer.innerHTML = '<div class="metric"><span>Nenhum dado de compradores</span></div>';
         } else {
@@ -693,14 +705,15 @@
                 buyerDiv.className = 'buyer-item';
                 buyerDiv.innerHTML = `
                     <span><strong>${buyer.name}</strong></span>
-                    <span>${buyer.separations} separações</span>
-                    <span>${buyer.items} itens</span>
+                    <span>${buyer.orderCount} Ordens de Sep.</span> <span>${buyer.items} itens</span>
                 `;
                 buyersMetricsContainer.appendChild(buyerDiv);
             });
         }
+        // ##### FIM DA ATUALIZAÇÃO #####
 
-        // ##### NOVO BLOCO (PRINCIPAIS ITENS) #####
+
+        // ##### ATUALIZAÇÃO DA TABELA 'PRINCIPAIS ITENS' (VERSÃO SEGURA) #####
         const topProductsTableBody = document.getElementById('topProductsTableBody');
         topProductsTableBody.innerHTML = '';
         // Classifica por contagem (Nº de Linhas) e pega os 30 primeiros
@@ -718,7 +731,7 @@
                 topProductsTableBody.appendChild(row);
             });
         }
-        // ##### FIM DO NOVO BLOCO #####
+        // ##### FIM DA ATUALIZAÇÃO #####
 
         updateCharts(data);
     }
