@@ -94,6 +94,7 @@
                 <div class="tab" data-tab="details">Detalhes</div>
                 <div class="tab" data-tab="operators">Operadores</div>
                 <div class="tab" data-tab="buyers">Principais Compradores</div>
+                <div class="tab" data-tab="topProducts">Principais Itens</div>
             </div>
             <div class="tab-content active" id="overview">
                 <div class="dashboard-grid">
@@ -180,6 +181,27 @@
                     <div id="buyersMetrics"></div>
                 </div>
             </div>
+
+            <div class="tab-content" id="topProducts">
+                <div class="card">
+                    <h3>Top 30 Itens Mais Separados (por Nº de Linhas)</h3>
+                    <p style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 15px;">
+                        Mostra os produtos que aparecem com mais frequência nas ordens de separação.
+                    </p>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Produto (Código)</th>
+                                    <th>Nº de Linhas de Separação</th>
+                                </tr>
+                            </thead>
+                            <tbody id="topProductsTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
         </main>
     </div>
 
@@ -368,8 +390,7 @@
         let date;
         if (typeof dateValue === 'number') {
             // Converte data serial do Excel (base 1900)
-            // Se dateValue for 0, ele retorna a data "zero" do Excel
-            if (dateValue === 0) return new Date('1900-01-01T00:00:00'); // Trata o 0 explicitamente
+            if (dateValue === 0) return new Date('1900-01-01T00:00:00'); 
             date = new Date((dateValue - 25569) * 86400 * 1000);
         } else if (typeof dateValue === 'string') {
             // Tenta formato YYYYMMDD
@@ -387,25 +408,19 @@
             date = dateValue; 
         }
         
-        // Garante que a data é válida
         if (!date || isNaN(date.getTime())) return null;
 
-        // NÃO zera mais a hora aqui, deixa a data como ela é (se for 1900, mantém)
-        // Apenas zera a hora para datas que NÃO SÃO a data "zero"
         if (date.getFullYear() > 1900) {
             date.setHours(0, 0, 0, 0); // Padroniza a data para meia-noite
         }
         return date;
     }
 
-    // ########## FUNÇÃO DE FORMATAR DATA ATUALIZADA (Para esconder 1900) ##########
     function formatDate(date) {
-        // Se a data for nula ou o ano for 1900 (ou anterior), retorna um traço
         if (!date || date.getFullYear() <= 1900) return '-';
         return date.toLocaleDateString('pt-BR');
     }
 
-    // ########## FUNÇÃO DE PROCESSAMENTO ATUALIZADA (Para corrigir 'RUEBNS') ##########
     function processExcelData(jsonData) {
         if (!jsonData || jsonData.length === 0) throw new Error('Dados insuficientes');
         
@@ -429,24 +444,20 @@
             const dataFinalSeparacao = parseDateRobust(row['DATA_FINAL_SEPARACAO'] || row['DATA FINAL SEPARACAO'] || row['data_final_separacao'] || row['DataFinalSeparacao']);
             const status = row['STATUS'] || row['status'] || row['Status'] || 'N/A';
 
-            // --- INÍCIO DA CORREÇÃO ---
-            // 1. Normaliza o nome (tira espaços, põe maiúscula)
             let nomeOperadorNormalizado = String(nomeOperador).trim().toUpperCase();
 
-            // 2. Corrige o erro de digitação específico
             if (nomeOperadorNormalizado === 'RUEBNS CUSTODIO') {
                 nomeOperadorNormalizado = 'RUBENS CUSTODIO';
             }
-            // --- FIM DA CORREÇÃO ---
             
             return {
                 empresa: String(empresa).trim(),
                 filial: String(filial).trim(),
                 ordemSep: ordemSep,
                 operador: operador,
-                nomeOperador: nomeOperadorNormalizado, // Salva o nome já corrigido
+                nomeOperador: nomeOperadorNormalizado, 
                 pedido: pedido,
-                produto: produto,
+                produto: String(produto).trim(), // Limpa o nome do produto também
                 item: item,
                 armazem: armazem,
                 endereco: endereco,
@@ -460,11 +471,9 @@
         }).filter(separation => separation.nomeOperador !== 'DESCONHECIDO' && separation.inicioSeparacao);
     }
 
-    // ########## FUNÇÃO DE CÁLCULO (LÓGICA REAL RESTAURADA) ##########
     function calculateMetrics(separations) {
         const totalSeparations = separations.length;
         
-        // Lógica correta: Soma 'FINALIZADO', 'ENCERRADA' e 'IMPRIME VOLUME'
         const completedSeparations = separations.filter(s => 
             s.status === 'FINALIZADO' || s.status === 'ENCERRADA' || s.status === 'IMPRIME VOLUME').length;
         
@@ -475,25 +484,25 @@
         
         // Métricas por operador
         const operatorMetrics = Object.values(separations.reduce((acc, separation) => {
-            const operatorKey = separation.nomeOperador; // Já vem corrigido e normalizado
+            const operatorKey = separation.nomeOperador; 
             if (operatorKey === 'DESCONHECIDO' || !operatorKey) return acc; 
             
             acc[operatorKey] = acc[operatorKey] || { 
                 name: separation.nomeOperador, 
                 totalSeparations: 0,
                 completedSeparations: 0,
-                totalItems: 0
+                totalItems: 0 // Este 'totalItems' soma a coluna 'item', o que pode não ser 'quantidade'
             };
             
             acc[operatorKey].totalSeparations++;
 
-            // Conta como concluída apenas se o status for de finalização
             if (separation.status === 'FINALIZADO' || separation.status === 'ENCERRADA' || separation.status === 'IMPRIME VOLUME') {
                 acc[operatorKey].completedSeparations++;
             }
             
-            const itemCount = separation.item && !isNaN(parseInt(separation.item)) ? 
-                parseInt(separation.item) : 1;
+            // ATENÇÃO: A coluna 'ITEM' está sendo somada. Se 'ITEM' não for 'QUANTIDADE', este número pode estar incorreto.
+            const itemCount = separation.item && !isNaN(parseInt(separation.item, 10)) ? 
+                parseInt(separation.item, 10) : 1;
             acc[operatorKey].totalItems += itemCount;
             
             return acc;
@@ -512,12 +521,29 @@
             acc[buyerKey] = acc[buyerKey] || { name: (separation.cliente || 'NÃO IDENTIFICADO'), separations: 0, items: 0 };
             acc[buyerKey].separations++;
             
-            const itemCount = separation.item && !isNaN(parseInt(separation.item)) ? 
-                parseInt(separation.item) : 1;
+            // ATENÇÃO: Mesma observação da métrica de operador.
+            const itemCount = separation.item && !isNaN(parseInt(separation.item, 10)) ? 
+                parseInt(separation.item, 10) : 1;
             acc[buyerKey].items += itemCount;
             
             return acc;
         }, {}));
+
+        // ##### NOVA MÉTRICA (PRINCIPAIS ITENS) #####
+        const productMetrics = Object.values(separations.reduce((acc, separation) => {
+            const productKey = separation.produto || 'NÃO IDENTIFICADO';
+            
+            acc[productKey] = acc[productKey] || { 
+                name: productKey, 
+                separationsCount: 0 // Contador de linhas/ocorrências
+            };
+            
+            // Apenas conta a ocorrência (linha) do produto
+            acc[productKey].separationsCount++;
+            
+            return acc;
+        }, {}));
+        // ##### FIM DA NOVA MÉTRICA #####
 
         // Os status são contados para o card "Status das Separações"
         const statusCounts = separations.reduce((acc, separation) => {
@@ -528,7 +554,6 @@
         const separationsByDay = separations.reduce((acc, separation) => {
             if (separation.inicioSeparacao) {
                 const dateStr = formatDate(separation.inicioSeparacao);
-                // Não adiciona ao gráfico se a data for "inválida" (1900)
                 if(dateStr !== '-') {
                     acc[dateStr] = (acc[dateStr] || 0) + 1;
                 }
@@ -552,6 +577,7 @@
             operatorMetrics, 
             companyMetrics, 
             buyerMetrics,
+            productMetrics, // Adiciona a nova métrica ao retorno
             statusCounts, 
             separationsByDay: sortedDays, 
             separations 
@@ -570,13 +596,13 @@
     }
 
     function updateDashboard(data) {
-        // Atualiza o card "Resumo Geral" com os novos valores (reais)
+        // Card "Resumo Geral"
         document.getElementById('totalSeparations').textContent = data.totalSeparations;
         document.getElementById('completedSeparations').textContent = data.completedSeparations;
         document.getElementById('inProgressSeparations').textContent = data.inProgressSeparations;
         document.getElementById('completionRate').textContent = data.completionRate;
         
-        // O card "Status das Separações" continua mostrando a distribuição real
+        // Card "Status das Separações"
         document.getElementById('statusFinalizado').textContent = 
             (data.statusCounts['FINALIZADO'] || 0) + (data.statusCounts['ENCERRADA'] || 0);
         document.getElementById('statusImprimeVolume').textContent = data.statusCounts['IMPRIME VOLUME'] || 0;
@@ -584,7 +610,7 @@
         document.getElementById('statusNaoIniciada').textContent = data.statusCounts['NÃO INICIADA'] || 0;
         document.getElementById('statusGeraNota').textContent = data.statusCounts['GERA NOTA'] || 0;
 
-        // Métricas por empresa
+        // Card "Separações por Empresa"
         const companyMetricsContainer = document.getElementById('companyMetrics');
         companyMetricsContainer.innerHTML = '';
         const sortedCompanies = data.companyMetrics.sort((a, b) => b.separations - a.separations);
@@ -599,7 +625,7 @@
             });
         }
 
-        // Tabela de detalhes
+        // Tabela "Detalhes"
         const separationsTableBody = document.getElementById('separationsTableBody');
         separationsTableBody.innerHTML = '';
         if (data.separations.length === 0) {
@@ -620,8 +646,10 @@
                     <td>${separation.item}</td>
                     <td>${separation.endereco}</td>
                     <td><span class="status-badge status-${statusClass}">${separation.status}</span></td>
-                    <td>${formatDate(separation.inicioSeparacao)}</td> <td>${separation.horaInicioSeparacao||'-'}</td>
-                    <td>${formatDate(separation.dataFinalSeparacao)}</td> `;
+                    <td>${formatDate(separation.inicioSeparacao)}</td> 
+                    <td>${separation.horaInicioSeparacao||'-'}</td>
+                    <td>${formatDate(separation.dataFinalSeparacao)}</td>
+                `;
                 separationsTableBody.appendChild(row);
             });
             if (data.separations.length > 200) {
@@ -631,7 +659,7 @@
             }
         }
 
-        // Tabela de operadores (agora com taxa real)
+        // Tabela "Operadores"
         const operatorsTableBody = document.getElementById('operatorsTableBody');
         operatorsTableBody.innerHTML = '';
         if (data.operatorMetrics.length === 0) {
@@ -639,7 +667,6 @@
         } else {
             const sortedOperators = [...data.operatorMetrics].sort((a, b) => b.completedSeparations - a.completedSeparations);
             sortedOperators.forEach(operator => {
-                // MUDANÇA: Taxa de conclusão volta a ser a real
                 const completionRate = operator.totalSeparations > 0 ? 
                     ((operator.completedSeparations / operator.totalSeparations) * 100).toFixed(1) + '%' : '0%';
                 
@@ -654,7 +681,7 @@
             });
         }
 
-        // Principais compradores
+        // Tabela "Principais Compradores"
         const buyersMetricsContainer = document.getElementById('buyersMetrics');
         buyersMetricsContainer.innerHTML = '';
         const sortedBuyers = [...data.buyerMetrics].sort((a, b) => b.separations - a.separations).slice(0, 10);
@@ -672,6 +699,26 @@
                 buyersMetricsContainer.appendChild(buyerDiv);
             });
         }
+
+        // ##### NOVO BLOCO (PRINCIPAIS ITENS) #####
+        const topProductsTableBody = document.getElementById('topProductsTableBody');
+        topProductsTableBody.innerHTML = '';
+        // Classifica por contagem (Nº de Linhas) e pega os 30 primeiros
+        const sortedProducts = [...data.productMetrics].sort((a, b) => b.separationsCount - a.separationsCount).slice(0, 30);
+        
+        if (sortedProducts.length === 0) {
+            topProductsTableBody.innerHTML = '<tr><td colspan="2" style="text-align: center;">Nenhum produto encontrado.</td></tr>';
+        } else {
+            sortedProducts.forEach(product => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${product.name}</td>
+                    <td>${product.separationsCount}</td>
+                `;
+                topProductsTableBody.appendChild(row);
+            });
+        }
+        // ##### FIM DO NOVO BLOCO #####
 
         updateCharts(data);
     }
