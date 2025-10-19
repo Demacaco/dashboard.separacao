@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard de Separação</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #121212; --bg-secondary: #1e1e1e; --bg-card: #252525;
+            --text-primary: #e0e0e0; --text-secondary: #b0b0b0; --accent: #4a9eff;
+            --accent-hover: #3a8eef; --success: #4caf50; --warning: #ff9800; --danger: #f44336;
+            --info: #2196f3;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { background-color: var(--bg-primary); color: var(--text-primary); line-height: 1.6; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; padding-bottom: 15px; border-bottom: 1px solid #333; }
+        h1 { font-size: 1.8rem; color: var(--accent); }
+        .date-filter { display: flex; gap: 10px; align-items: center; }
+        select, button, input { background-color: var(--bg-secondary); color: var(--text-primary); border: 1px solid #444; border-radius: 4px; padding: 8px 12px; cursor: pointer; }
+        input { width: 250px; }
+        .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .card { background-color: var(--bg-card); border-radius: 8px; padding: 20px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); }
+        .card h3 { margin-bottom: 15px; color: var(--accent); font-size: 1.2rem; }
+        .metric { display: flex; justify-content: space-between; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #333; }
+        .metric:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+        .metric-value { font-weight: bold; font-size: 1.1rem; }
+        .charts-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .chart-card { background-color: var(--bg-card); border-radius: 8px; padding: 20px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); }
+        .chart-container { position: relative; height: 300px; width: 100%; }
+        .data-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        .data-table th, .data-table td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #333; }
+        .data-table th { background-color: var(--bg-secondary); color: var(--accent); font-weight: 600; }
+        .data-table tr:hover { background-color: rgba(255, 255, 255, 0.05); }
+        .status-badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; }
+        .status-finalizado, .status-encerrada { background-color: var(--success); color: white; }
+        .status-imprimevolume { background-color: var(--info); color: white; }
+        .status-em-separacao { background-color: var(--accent); color: white; }
+        .status-nao-iniciada { background-color: var(--warning); color: black; }
+        .status-gera-nota { background-color: #9c27b0; color: white; }
+        .tabs { display: flex; margin-bottom: 20px; border-bottom: 1px solid #333; }
+        .tab { padding: 10px 20px; cursor: pointer; border-bottom: 2px solid transparent; }
+        .tab.active { border-bottom: 2px solid var(--accent); color: var(--accent); }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .upload-container { background-color: var(--bg-card); border-radius: 8px; padding: 30px; text-align: center; margin-bottom: 30px; border: 2px dashed #444; }
+        .upload-area { display: flex; flex-direction: column; align-items: center; gap: 15px; }
+        .upload-icon { font-size: 48px; color: var(--accent); }
+        .file-input { display: none; }
+        .upload-btn { background-color: var(--accent); color: white; border: none; padding: 10px 20px; font-weight: bold; transition: background-color 0.3s; }
+        .upload-btn:hover { background-color: var(--accent-hover); }
+        .file-info { margin-top: 15px; color: var(--text-secondary); }
+        .loading { display: none; text-align: center; margin: 20px 0; }
+        .spinner { border: 4px solid rgba(255, 255, 255, 0.3); border-radius: 50%; border-top: 4px solid var(--accent); width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 10px; }
+        .search-container { display: flex; gap: 10px; margin-bottom: 20px; align-items: center; }
+        .search-label { font-weight: bold; color: var(--accent); }
+        .top-buyers { margin-top: 20px; }
+        .buyer-item { display: flex; justify-content: space-between; margin-bottom: 8px; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px; }
+        .format-info { margin-top: 10px; font-size: 0.9rem; color: var(--text-secondary); }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @media (max-width: 768px) { .dashboard-grid, .charts-container { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Dashboard de Separação</h1>
+            <div class="date-filter">
+                <button class="upload-btn" id="newUploadBtn" style="display: none;">Carregar Novo Arquivo</button>
+                <select id="companyFilter" disabled><option value="all">Todas as Empresas</option></select>
+                <select id="dateRange" disabled><option value="all">Todo o Período</option><option value="week">Última Semana</option><option value="month">Último Mês</option></select>
+            </div>
+        </header>
+        <div class="upload-container" id="uploadContainer">
+            <div class="upload-area">
+                <div class="upload-icon">📦</div>
+                <h3>Carregar Arquivo de Dados de Separação</h3>
+                <p>Faça upload de um arquivo Excel (.xlsx) ou CSV (.csv) com os dados de separação</p>
+                <input type="file" id="fileInput" class="file-input" accept=".xlsx, .xls, .csv">
+                <button class="upload-btn" id="uploadBtn">Selecionar Arquivo</button>
+                <div class="file-info" id="fileInfo">Nenhum arquivo selecionado</div>
+                <div class="format-info">
+                    <strong>Formatos aceitos:</strong> .xlsx, .xls, .csv<br>
+                    <strong>Colunas esperadas:</strong> EMPRESA, FILIAL, ORDEM_SEP, OPERADOR, NOME_OPERADOR, PEDIDO, PRODUTO, ITEM, ARMAZEM, ENDERECO, CLIENTE, LOJA, INICIO_SEPARACAO, HORA_INICIO_SEPARACAO, DATA_FINAL_SEPARACAO, STATUS
+                </div>
+            </div>
+        </div>
+        <div class="loading" id="loading"><div class="spinner"></div><p>Processando dados...</p></div>
+        <main id="mainContent" style="display: none;">
+            <div class="tabs">
+                <div class="tab active" data-tab="overview">Visão Geral</div>
+                <div class="tab" data-tab="details">Detalhes</div>
+                <div class="tab" data-tab="operators">Operadores</div>
+                <div class="tab" data-tab="buyers">Principais Compradores</div>
+            </div>
+            <div class="tab-content active" id="overview">
+                <div class="dashboard-grid">
+                    <div class="card">
+                        <h3>Resumo Geral</h3>
+                        <div class="metric"><span>Total de Separações:</span><span class="metric-value" id="totalSeparations">0</span></div>
+                        <div class="metric"><span>Separações Finalizadas:</span><span class="metric-value" id="completedSeparations">0</span></div>
+                        <div class="metric"><span>Separações em Andamento:</span><span class="metric-value" id="inProgressSeparations">0</span></div>
+                        <div class="metric"><span>Taxa de Conclusão:</span><span class="metric-value" id="completionRate">0%</span></div>
+                    </div>
+                    <div class="card"><h3>Separações por Empresa</h3><div id="companyMetrics"></div></div>
+                    <div class="card">
+                        <h3>Status das Separações</h3>
+                        <div class="metric"><span>FINALIZADO/ENCERRADO:</span><span class="metric-value" id="statusFinalizado">0</span></div>
+                        <div class="metric"><span>IMPRIME VOLUME:</span><span class="metric-value" id="statusImprimeVolume">0</span></div>
+                        <div class="metric"><span>EM SEPARAÇÃO:</span><span class="metric-value" id="statusEmSeparacao">0</span></div>
+                        <div class="metric"><span>NÃO INICIADA:</span><span class="metric-value" id="statusNaoIniciada">0</span></div>
+                        <div class="metric"><span>GERA NOTA:</span><span class="metric-value" id="statusGeraNota">0</span></div>
+                    </div>
+                </div>
+                
+                <div class="chart-card" style="margin-bottom: 20px;">
+                    <h3>Separações por Dia</h3>
+                    <div class="chart-container"><canvas id="separationsByDayChart"></canvas></div>
+                </div>
+                
+                <div class="charts-container">
+                    <div class="chart-card"><h3>Distribuição por Status</h3><div class="chart-container"><canvas id="statusDistributionChart"></canvas></div></div>
+                    <div class="chart-card"><h3>Produtividade por Operador</h3><div class="chart-container"><canvas id="operatorProductivityChart"></canvas></div></div>
+                </div>
+            </div>
+            <div class="tab-content" id="details">
+                <div class="search-container">
+                    <span class="search-label">Buscar por Código:</span>
+                    <input type="text" id="searchInput" placeholder="Digite pedido, produto ou operador...">
+                    <button class="upload-btn" id="clearSearch">Limpar</button>
+                </div>
+                <div class="card">
+                    <h3>Detalhes das Separações</h3>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Empresa</th>
+                                    <th>Filial</th>
+                                    <th>Ordem Sep.</th>
+                                    <th>Operador</th>
+                                    <th>Pedido</th>
+                                    <th>Produto</th>
+                                    <th>Item</th>
+                                    <th>Endereço</th>
+                                    <th>Status</th>
+                                    <th>Início Separação</th>
+                                    <th>Hora Início</th>
+                                    <th>Final Separação</th>
+                                </tr>
+                            </thead>
+                            <tbody id="separationsTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="tab-content" id="operators">
+                <div class="card">
+                    <h3>Desempenho dos Operadores</h3>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Operador</th>
+                                    <th>Total Separações</th>
+                                    <th>Finalizadas</th>
+                                    <th>Taxa de Conclusão</th>
+                                </tr>
+                            </thead>
+                            <tbody id="operatorsTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="tab-content" id="buyers">
+                <div class="card">
+                    <h3>Principais Compradores</h3>
+                    <div id="buyersMetrics"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+<script>
+    const fileInput = document.getElementById('fileInput');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const newUploadBtn = document.getElementById('newUploadBtn');
+    const fileInfo = document.getElementById('fileInfo');
+    const loading = document.getElementById('loading');
+    const dateRangeSelect = document.getElementById('dateRange');
+    const companyFilterSelect = document.getElementById('companyFilter');
+    const uploadContainer = document.getElementById('uploadContainer');
+    const mainContent = document.getElementById('mainContent');
+    const searchInput = document.getElementById('searchInput');
+    const clearSearch = document.getElementById('clearSearch');
+
+    let allSeparations = [];
+    let charts = {};
+    let currentSearchTerm = '';
+
+    document.addEventListener('DOMContentLoaded', function() {
+        setupTabs();
+        initializeCharts();
+        uploadBtn.addEventListener('click', () => fileInput.click());
+        newUploadBtn.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', handleFileUpload);
+        dateRangeSelect.addEventListener('change', applyFilters);
+        companyFilterSelect.addEventListener('change', applyFilters);
+        searchInput.addEventListener('input', handleSearch);
+        clearSearch.addEventListener('click', clearSearchHandler);
+    });
+
+    function handleSearch() {
+        currentSearchTerm = searchInput.value.toLowerCase().trim();
+        applyFilters();
+    }
+
+    function clearSearchHandler() {
+        searchInput.value = '';
+        currentSearchTerm = '';
+        applyFilters();
+    }
+
+    function handleFileUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        
+        fileInfo.textContent = `Arquivo selecionado: ${file.name}`;
+        loading.style.display = 'block';
+        mainContent.style.display = 'none';
+        
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const data = e.target.result;
+                let jsonData;
+                
+                // Verifica se é CSV ou Excel
+                if (file.name.toLowerCase().endsWith('.csv')) {
+                    jsonData = parseCSV(data);
+                } else {
+                    // Processa arquivo Excel
+                    const workbook = XLSX.read(data, { type: 'binary' });
+                    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                    jsonData = XLSX.utils.sheet_to_json(firstSheet);
+                }
+                
+                if (!jsonData || jsonData.length === 0) {
+                    throw new Error('Arquivo vazio ou sem dados');
+                }
+                
+                allSeparations = processExcelData(jsonData);
+                populateCompanyFilter(allSeparations);
+                companyFilterSelect.value = 'all';
+                dateRangeSelect.value = 'all';
+                applyFilters();
+                uploadContainer.style.display = 'none';
+                mainContent.style.display = 'block';
+                newUploadBtn.style.display = 'inline-block';
+                dateRangeSelect.disabled = false;
+                companyFilterSelect.disabled = false;
+                
+            } catch (error) {
+                console.error('Erro ao processar o arquivo:', error);
+                fileInfo.textContent = `Erro: ${error.message}. Verifique o formato e as colunas do arquivo.`;
+                fileInfo.style.color = '#f44336';
+            } finally {
+                loading.style.display = 'none';
+                fileInput.value = '';
+            }
+        };
+        
+        // Lê o arquivo de forma adequada para o tipo
+        if (file.name.toLowerCase().endsWith('.csv')) {
+            reader.readAsText(file);
+        } else {
+            reader.readAsBinaryString(file);
+        }
+    }
+
+    function parseCSV(csvText) {
+        const lines = csvText.split('\n');
+        if (lines.length < 2) {
+            throw new Error('Arquivo CSV muito pequeno');
+        }
+        
+        // Detecta o separador (vírgula ou ponto e vírgula)
+        const firstLine = lines[0];
+        const hasSemicolon = firstLine.includes(';');
+        const delimiter = hasSemicolon ? ';' : ',';
+        
+        // Pega os headers
+        const headers = firstLine.split(delimiter).map(h => h.trim().replace(/"/g, ''));
+        
+        // Processa as linhas de dados
+        const result = [];
+        for (let i = 1; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line) continue;
+            
+            const values = line.split(delimiter).map(v => v.trim().replace(/"/g, ''));
+            const obj = {};
+            
+            headers.forEach((header, index) => {
+                obj[header] = values[index] || '';
+            });
+            
+            result.push(obj);
+        }
+        
+        return result;
+    }
+
+    function applyFilters() {
+        const selectedCompany = companyFilterSelect.value;
+        const selectedPeriod = dateRangeSelect.value;
+        let filteredSeparations = [...allSeparations];
+
+        // Filtro por empresa
+        if (selectedCompany !== 'all') {
+            filteredSeparations = filteredSeparations.filter(separation => separation.empresa === selectedCompany);
+        }
+
+        // Filtro por período (LÓGICA CORRIGIDA para pegar o dia completo)
+        if (selectedPeriod !== 'all') {
+            const now = new Date();
+            let startDate = new Date(); // Início do período a ser filtrado
+            let endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999); // Fim do dia atual
+
+            if (selectedPeriod === 'week') {
+                startDate.setDate(now.getDate() - 6); // Pega 7 dias incluindo hoje
+            } else if (selectedPeriod === 'month') {
+                startDate.setMonth(now.getMonth() - 1); // Pega 1 mês incluindo hoje
+            }
+            
+            // Garante que a startDate comece à meia-noite do dia
+            startDate.setHours(0, 0, 0, 0); 
+            
+            const startTimestamp = startDate.getTime();
+            const endTimestamp = endDate.getTime();
+            
+            filteredSeparations = filteredSeparations.filter(separation => {
+                if (!separation.inicioSeparacao) return false;
+                const separationStartOfDay = separation.inicioSeparacao.getTime(); // Já é 00:00:00
+                
+                return separationStartOfDay >= startTimestamp && separationStartOfDay <= endTimestamp;
+            });
+        }
+
+        // Filtro por busca
+        if (currentSearchTerm) {
+            filteredSeparations = filteredSeparations.filter(separation => 
+                (separation.pedido && String(separation.pedido).toLowerCase().includes(currentSearchTerm)) ||
+                (separation.produto && String(separation.produto).toLowerCase().includes(currentSearchTerm)) ||
+                (separation.nomeOperador && String(separation.nomeOperador).toLowerCase().includes(currentSearchTerm)) ||
+                (separation.ordemSep && String(separation.ordemSep).toLowerCase().includes(currentSearchTerm))
+            );
+        }
+
+        const metrics = calculateMetrics(filteredSeparations);
+        updateDashboard(metrics);
+    }
+
+    function parseDateRobust(dateValue) {
+        if (!dateValue) return null;
+        let date;
+        if (typeof dateValue === 'number') {
+            // Converte data serial do Excel (base 1900)
+            // Se dateValue for 0, ele retorna a data "zero" do Excel
+            if (dateValue === 0) return new Date('1900-01-01T00:00:00'); // Trata o 0 explicitamente
+            date = new Date((dateValue - 25569) * 86400 * 1000);
+        } else if (typeof dateValue === 'string') {
+            // Tenta formato YYYYMMDD
+            if (/^\d{8}$/.test(dateValue)) {
+                date = new Date(`${dateValue.substring(0, 4)}-${dateValue.substring(4, 6)}-${dateValue.substring(6, 8)}T00:00:00`);
+            // Tenta formato DD/MM/YYYY
+            } else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(dateValue)) {
+                const [day, month, year] = dateValue.split('/');
+                date = new Date(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T00:00:00`);
+            } else {
+                // Tenta outros formatos (incluindo ISO YYYY-MM-DD e 01/01/1900)
+                date = new Date(dateValue);
+            }
+        } else if (dateValue instanceof Date) { 
+            date = dateValue; 
+        }
+        
+        // Garante que a data é válida
+        if (!date || isNaN(date.getTime())) return null;
+
+        // NÃO zera mais a hora aqui, deixa a data como ela é (se for 1900, mantém)
+        // Apenas zera a hora para datas que NÃO SÃO a data "zero"
+        if (date.getFullYear() > 1900) {
+            date.setHours(0, 0, 0, 0); // Padroniza a data para meia-noite
+        }
+        return date;
+    }
+
+    // ########## FUNÇÃO DE FORMATAR DATA ATUALIZADA (Para esconder 1900) ##########
+    function formatDate(date) {
+        // Se a data for nula ou o ano for 1900 (ou anterior), retorna um traço
+        if (!date || date.getFullYear() <= 1900) return '-';
+        return date.toLocaleDateString('pt-BR');
+    }
+
+    // ########## FUNÇÃO DE PROCESSAMENTO ATUALIZADA (Para corrigir 'RUEBNS') ##########
+    function processExcelData(jsonData) {
+        if (!jsonData || jsonData.length === 0) throw new Error('Dados insuficientes');
+        
+        console.log('Colunas disponíveis:', Object.keys(jsonData[0]));
+        
+        return jsonData.map(row => {
+            const empresa = row['EMPRESA'] || row['empresa'] || row['Empresa'] || 'N/A';
+            const filial = row['FILIAL'] || row['filial'] || row['Filial'] || '';
+            const ordemSep = row['ORDEM_SEP'] || row['ORDEM SEP'] || row['ordem_sep'] || row['OrdemSep'] || '';
+            const operador = row['OPERADOR'] || row['operador'] || row['Operador'] || '';
+            let nomeOperador = row['NOME_OPERADOR'] || row['NOME OPERADOR'] || row['nome_operador'] || row['NomeOperador'] || 'Desconhecido';
+            const pedido = row['PEDIDO'] || row['pedido'] || row['Pedido'] || '';
+            const produto = row['PRODUTO'] || row['produto'] || row['Produto'] || '';
+            const item = row['ITEM'] || row['item'] || row['Item'] || '';
+            const armazem = row['ARMAZEM'] || row['armazem'] || row['Armazem'] || '';
+            const endereco = row['ENDERECO'] || row['endereco'] || row['Endereco'] || '';
+            const cliente = row['CLIENTE'] || row['cliente'] || row['Cliente'] || '';
+            const loja = row['LOJA'] || row['loja'] || row['Loja'] || '';
+            const inicioSeparacao = parseDateRobust(row['INICIO_SEPARACAO'] || row['INICIO SEPARACAO'] || row['inicio_separacao'] || row['InicioSeparacao']);
+            const horaInicioSeparacao = row['HORA_INICIO_SEPARACAO'] || row['HORA INICIO SEPARACAO'] || row['hora_inicio_separacao'] || row['HoraInicioSeparacao'] || '';
+            const dataFinalSeparacao = parseDateRobust(row['DATA_FINAL_SEPARACAO'] || row['DATA FINAL SEPARACAO'] || row['data_final_separacao'] || row['DataFinalSeparacao']);
+            const status = row['STATUS'] || row['status'] || row['Status'] || 'N/A';
+
+            // --- INÍCIO DA CORREÇÃO ---
+            // 1. Normaliza o nome (tira espaços, põe maiúscula)
+            let nomeOperadorNormalizado = String(nomeOperador).trim().toUpperCase();
+
+            // 2. Corrige o erro de digitação específico
+            if (nomeOperadorNormalizado === 'RUEBNS CUSTODIO') {
+                nomeOperadorNormalizado = 'RUBENS CUSTODIO';
+            }
+            // --- FIM DA CORREÇÃO ---
+            
+            return {
+                empresa: String(empresa).trim(),
+                filial: String(filial).trim(),
+                ordemSep: ordemSep,
+                operador: operador,
+                nomeOperador: nomeOperadorNormalizado, // Salva o nome já corrigido
+                pedido: pedido,
+                produto: produto,
+                item: item,
+                armazem: armazem,
+                endereco: endereco,
+                cliente: String(cliente).trim(),
+                loja: loja,
+                inicioSeparacao: inicioSeparacao,
+                horaInicioSeparacao: horaInicioSeparacao,
+                dataFinalSeparacao: dataFinalSeparacao,
+                status: String(status).trim()
+            };
+        }).filter(separation => separation.nomeOperador !== 'DESCONHECIDO' && separation.inicioSeparacao);
+    }
+
+    // ########## FUNÇÃO DE CÁLCULO (LÓGICA REAL RESTAURADA) ##########
+    function calculateMetrics(separations) {
+        const totalSeparations = separations.length;
+        
+        // Lógica correta: Soma 'FINALIZADO', 'ENCERRADA' e 'IMPRIME VOLUME'
+        const completedSeparations = separations.filter(s => 
+            s.status === 'FINALIZADO' || s.status === 'ENCERRADA' || s.status === 'IMPRIME VOLUME').length;
+        
+        const inProgressSeparations = totalSeparations - completedSeparations;
+        
+        const completionRate = totalSeparations > 0 ? 
+            ((completedSeparations / totalSeparations) * 100).toFixed(1) + '%' : '0%';
+        
+        // Métricas por operador
+        const operatorMetrics = Object.values(separations.reduce((acc, separation) => {
+            const operatorKey = separation.nomeOperador; // Já vem corrigido e normalizado
+            if (operatorKey === 'DESCONHECIDO' || !operatorKey) return acc; 
+            
+            acc[operatorKey] = acc[operatorKey] || { 
+                name: separation.nomeOperador, 
+                totalSeparations: 0,
+                completedSeparations: 0,
+                totalItems: 0
+            };
+            
+            acc[operatorKey].totalSeparations++;
+
+            // Conta como concluída apenas se o status for de finalização
+            if (separation.status === 'FINALIZADO' || separation.status === 'ENCERRADA' || separation.status === 'IMPRIME VOLUME') {
+                acc[operatorKey].completedSeparations++;
+            }
+            
+            const itemCount = separation.item && !isNaN(parseInt(separation.item)) ? 
+                parseInt(separation.item) : 1;
+            acc[operatorKey].totalItems += itemCount;
+            
+            return acc;
+        }, {}));
+
+        // Métricas por empresa
+        const companyMetrics = Object.values(separations.reduce((acc, separation) => {
+            acc[separation.empresa] = acc[separation.empresa] || { name: separation.empresa, separations: 0 };
+            acc[separation.empresa].separations++;
+            return acc;
+        }, {}));
+
+        // Métricas por comprador (cliente)
+        const buyerMetrics = Object.values(separations.reduce((acc, separation) => {
+            const buyerKey = (separation.cliente || 'NÃO IDENTIFICADO').trim().toUpperCase(); 
+            acc[buyerKey] = acc[buyerKey] || { name: (separation.cliente || 'NÃO IDENTIFICADO'), separations: 0, items: 0 };
+            acc[buyerKey].separations++;
+            
+            const itemCount = separation.item && !isNaN(parseInt(separation.item)) ? 
+                parseInt(separation.item) : 1;
+            acc[buyerKey].items += itemCount;
+            
+            return acc;
+        }, {}));
+
+        // Os status são contados para o card "Status das Separações"
+        const statusCounts = separations.reduce((acc, separation) => {
+            acc[separation.status] = (acc[separation.status] || 0) + 1;
+            return acc;
+        }, {});
+
+        const separationsByDay = separations.reduce((acc, separation) => {
+            if (separation.inicioSeparacao) {
+                const dateStr = formatDate(separation.inicioSeparacao);
+                // Não adiciona ao gráfico se a data for "inválida" (1900)
+                if(dateStr !== '-') {
+                    acc[dateStr] = (acc[dateStr] || 0) + 1;
+                }
+            }
+            return acc;
+        }, {});
+
+        const sortedDays = Object.entries(separationsByDay)
+            .map(([date, count]) => ({ date, count }))
+            .sort((a, b) => {
+                const [dayA, monthA, yearA] = a.date.split('/');
+                const [dayB, monthB, yearB] = b.date.split('/');
+                return new Date(`${yearA}-${monthA}-${dayA}`) - new Date(`${yearB}-${monthB}-${dayB}`);
+            });
+
+        return { 
+            totalSeparations, 
+            completedSeparations, 
+            inProgressSeparations, 
+            completionRate,
+            operatorMetrics, 
+            companyMetrics, 
+            buyerMetrics,
+            statusCounts, 
+            separationsByDay: sortedDays, 
+            separations 
+        };
+    }
+
+    function populateCompanyFilter(separations) {
+        companyFilterSelect.innerHTML = '<option value="all">Todas as Empresas</option>';
+        const companies = [...new Set(separations.map(separation => separation.empresa))].sort();
+        companies.forEach(company => {
+            const option = document.createElement('option');
+            option.value = company;
+            option.textContent = company;
+            companyFilterSelect.appendChild(option);
+        });
+    }
+
+    function updateDashboard(data) {
+        // Atualiza o card "Resumo Geral" com os novos valores (reais)
+        document.getElementById('totalSeparations').textContent = data.totalSeparations;
+        document.getElementById('completedSeparations').textContent = data.completedSeparations;
+        document.getElementById('inProgressSeparations').textContent = data.inProgressSeparations;
+        document.getElementById('completionRate').textContent = data.completionRate;
+        
+        // O card "Status das Separações" continua mostrando a distribuição real
+        document.getElementById('statusFinalizado').textContent = 
+            (data.statusCounts['FINALIZADO'] || 0) + (data.statusCounts['ENCERRADA'] || 0);
+        document.getElementById('statusImprimeVolume').textContent = data.statusCounts['IMPRIME VOLUME'] || 0;
+        document.getElementById('statusEmSeparacao').textContent = data.statusCounts['EM SEPARAÇÃO'] || 0;
+        document.getElementById('statusNaoIniciada').textContent = data.statusCounts['NÃO INICIADA'] || 0;
+        document.getElementById('statusGeraNota').textContent = data.statusCounts['GERA NOTA'] || 0;
+
+        // Métricas por empresa
+        const companyMetricsContainer = document.getElementById('companyMetrics');
+        companyMetricsContainer.innerHTML = '';
+        const sortedCompanies = data.companyMetrics.sort((a, b) => b.separations - a.separations);
+        if (sortedCompanies.length === 0) {
+            companyMetricsContainer.innerHTML = '<div class="metric"><span>Nenhum dado</span></div>';
+        } else {
+            sortedCompanies.forEach(company => {
+                const metricDiv = document.createElement('div');
+                metricDiv.className = 'metric';
+                metricDiv.innerHTML = `<span>${company.name}:</span><span class="metric-value">${company.separations} separações</span>`;
+                companyMetricsContainer.appendChild(metricDiv);
+            });
+        }
+
+        // Tabela de detalhes
+        const separationsTableBody = document.getElementById('separationsTableBody');
+        separationsTableBody.innerHTML = '';
+        if (data.separations.length === 0) {
+            separationsTableBody.innerHTML = '<tr><td colspan="12" style="text-align: center;">Nenhuma separação encontrada.</td></tr>';
+        } else {
+            const sortedSeparationsForTable = [...data.separations].sort((a,b) => b.inicioSeparacao - a.inicioSeparacao);
+            sortedSeparationsForTable.slice(0, 200).forEach(separation => {
+                const row = document.createElement('tr');
+                let statusClass = (separation.status || 'default').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+                
+                row.innerHTML = `
+                    <td>${separation.empresa}</td>
+                    <td>${separation.filial}</td>
+                    <td>${separation.ordemSep}</td>
+                    <td>${separation.nomeOperador}</td>
+                    <td>${separation.pedido}</td>
+                    <td>${separation.produto}</td>
+                    <td>${separation.item}</td>
+                    <td>${separation.endereco}</td>
+                    <td><span class="status-badge status-${statusClass}">${separation.status}</span></td>
+                    <td>${formatDate(separation.inicioSeparacao)}</td> <td>${separation.horaInicioSeparacao||'-'}</td>
+                    <td>${formatDate(separation.dataFinalSeparacao)}</td> `;
+                separationsTableBody.appendChild(row);
+            });
+            if (data.separations.length > 200) {
+                const row = document.createElement('tr');
+                row.innerHTML = `<td colspan="12" style="text-align: center;">... e mais ${data.separations.length - 200} registros</td>`;
+                separationsTableBody.appendChild(row);
+            }
+        }
+
+        // Tabela de operadores (agora com taxa real)
+        const operatorsTableBody = document.getElementById('operatorsTableBody');
+        operatorsTableBody.innerHTML = '';
+        if (data.operatorMetrics.length === 0) {
+            operatorsTableBody.innerHTML = '<tr><td colspan="4" style="text-align: center;">Nenhum operador encontrado.</td></tr>';
+        } else {
+            const sortedOperators = [...data.operatorMetrics].sort((a, b) => b.completedSeparations - a.completedSeparations);
+            sortedOperators.forEach(operator => {
+                // MUDANÇA: Taxa de conclusão volta a ser a real
+                const completionRate = operator.totalSeparations > 0 ? 
+                    ((operator.completedSeparations / operator.totalSeparations) * 100).toFixed(1) + '%' : '0%';
+                
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${operator.name}</td>
+                    <td>${operator.totalSeparations}</td>
+                    <td>${operator.completedSeparations}</td>
+                    <td>${completionRate}</td>
+                `;
+                operatorsTableBody.appendChild(row);
+            });
+        }
+
+        // Principais compradores
+        const buyersMetricsContainer = document.getElementById('buyersMetrics');
+        buyersMetricsContainer.innerHTML = '';
+        const sortedBuyers = [...data.buyerMetrics].sort((a, b) => b.separations - a.separations).slice(0, 10);
+        if (sortedBuyers.length === 0) {
+            buyersMetricsContainer.innerHTML = '<div class="metric"><span>Nenhum dado de compradores</span></div>';
+        } else {
+            sortedBuyers.forEach(buyer => {
+                const buyerDiv = document.createElement('div');
+                buyerDiv.className = 'buyer-item';
+                buyerDiv.innerHTML = `
+                    <span><strong>${buyer.name}</strong></span>
+                    <span>${buyer.separations} separações</span>
+                    <span>${buyer.items} itens</span>
+                `;
+                buyersMetricsContainer.appendChild(buyerDiv);
+            });
+        }
+
+        updateCharts(data);
+    }
+
+    function updateCharts(data) {
+        const sortedOperatorsForChart = [...data.operatorMetrics].sort((a, b) => b.completedSeparations - a.completedSeparations);
+        
+        // Gráfico de separações por dia
+        charts.separationsByDay.data.labels = data.separationsByDay.map(d => d.date);
+        charts.separationsByDay.data.datasets[0].data = data.separationsByDay.map(d => d.count);
+        charts.separationsByDay.update();
+
+        // Gráfico de distribuição por status (continua mostrando a realidade dos dados)
+        const statusLabels = ['FINALIZADO/ENCERRADO', 'IMPRIME VOLUME', 'EM SEPARAÇÃO', 'NÃO INICIADA', 'GERA NOTA'];
+        const statusData = [
+            (data.statusCounts['FINALIZADO'] || 0) + (data.statusCounts['ENCERRADA'] || 0),
+            (data.statusCounts['IMPRIME VOLUME'] || 0),
+            (data.statusCounts['EM SEPARAÇÃO'] || 0),
+            (data.statusCounts['NÃO INICIADA'] || 0),
+            (data.statusCounts['GERA NOTA'] || 0)
+        ];
+        
+        charts.statusDistribution.data.labels = statusLabels;
+        charts.statusDistribution.data.datasets[0].data = statusData;
+        charts.statusDistribution.update();
+
+        // Gráfico de produtividade por operador
+        charts.operatorProductivity.data.labels = sortedOperatorsForChart.map(o => o.name);
+        charts.operatorProductivity.data.datasets[0].data = sortedOperatorsForChart.map(o => o.completedSeparations);
+        charts.operatorProductivity.update();
+    }
+
+    function initializeCharts() {
+        const commonOptions = { 
+            responsive: true, 
+            maintainAspectRatio: false, 
+            plugins: { 
+                legend: { 
+                    labels: { 
+                        color: '#e0e0e0' 
+                    } 
+                } 
+            }, 
+            scales: { 
+                x: { 
+                    ticks: { 
+                        color: '#b0b0b0',
+                        maxRotation: 45
+                    }, 
+                    grid: { 
+                        color: 'rgba(255, 255, 255, 0.1)' 
+                    } 
+                }, 
+                y: { 
+                    ticks: { 
+                        color: '#b0b0b0' 
+                    }, 
+                    grid: { 
+                        color: 'rgba(255, 255, 255, 0.1)' 
+                    } 
+                } 
+            } 
+        };
+        
+        charts.separationsByDay = new Chart(document.getElementById('separationsByDayChart').getContext('2d'), { 
+            type: 'line', 
+            data: { 
+                labels: [], 
+                datasets: [{ 
+                    label: 'Separações por Dia', 
+                    data: [], 
+                    borderColor: '#4a9eff', 
+                    backgroundColor: 'rgba(74, 158, 255, 0.1)', 
+                    borderWidth: 2, 
+                    fill: true, 
+                    tension: 0.4 
+                }] 
+            }, 
+            options: commonOptions 
+        });
+        
+        charts.statusDistribution = new Chart(document.getElementById('statusDistributionChart').getContext('2d'), { 
+            type: 'doughnut', 
+            data: { 
+                labels: [], 
+                datasets: [{ 
+                    data: [], 
+                    backgroundColor: ['#4caf50', '#2196f3', '#4a9eff', '#ff9800', '#9c27b0'],
+                    borderWidth: 1, 
+                    borderColor: '#252525' 
+                }] 
+            }, 
+            options: { 
+                responsive: true, 
+                maintainAspectRatio: false, 
+                plugins: { 
+                    legend: { 
+                        position: 'bottom', 
+                        labels: { 
+                            color: '#e0e0e0', 
+                            padding: 15 
+                        } 
+                    } 
+                } 
+            } 
+        });
+        
+        charts.operatorProductivity = new Chart(document.getElementById('operatorProductivityChart').getContext('2d'), { 
+            type: 'bar', 
+            data: { 
+                labels: [], 
+                datasets: [{ 
+                    label: 'Separações Finalizadas', 
+                    data: [], 
+                    backgroundColor: 'rgba(74, 158, 255, 0.7)', 
+                    borderColor: '#4a9eff', 
+                    borderWidth: 1 
+                }] 
+            }, 
+            options: commonOptions 
+        });
+    }
+
+    function setupTabs() {
+        const tabs = document.querySelectorAll('.tab');
+        const tabContents = document.querySelectorAll('.tab-content');
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                tabs.forEach(t => t.classList.remove('active'));
+                tabContents.forEach(c => c.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById(tab.getAttribute('data-tab')).classList.add('active');
+            });
+        });
+    }
+</script>
+</body>
+</html>
